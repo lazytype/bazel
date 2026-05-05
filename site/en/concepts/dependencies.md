@@ -298,70 +298,69 @@ directory and the workspace-relative path, for example,
 
 ## Using labels to reference directories {:#using-labels-reference-directories}
 
-As you look over our `BUILD` files, you might notice that some `data` labels
-refer to directories. These labels end with `/.` or `/` like these examples,
-which you should not use:
+Some rule attributes accept labels that refer to source directories. For
+example, a test can use a directory in its own package as a `data` dependency:
 
-<p><span class="compare-worse">Not recommended</span> —
-  <code>data = ["//data/regression:unittest/."]</code>
-</p>
+```starlark
+sh_test(
+    name = "regtest",
+    srcs = ["regtest.sh"],
+    data = ["testdata"],
+)
+```
 
-<p><span class="compare-worse">Not recommended</span> —
-  <code>data = ["testdata/."]</code>
-</p>
+If you need a source directory label, use the directory path without a trailing
+slash, such as `testdata`.
 
-<p><span class="compare-worse">Not recommended</span> —
-  <code>data = ["testdata/"]</code>
-</p>
+When Bazel uses a source directory as an input, it tracks the directory
+contents for invalidation. Content changes and additions or deletions beneath
+that directory can cause dependent actions or tests to run again.
 
-
-This seems convenient, particularly for tests because it allows a test to
-use all the data files in the directory.
-
-But try not to do this. In order to ensure correct incremental rebuilds (and
-re-execution of tests) after a change, the build system must be aware of the
-complete set of files that are inputs to the build (or test). When you specify
-a directory, the build system performs a rebuild only when the directory itself
-changes (due to addition or deletion of files), but won't be able to detect
-edits to individual files as those changes don't affect the enclosing directory.
-Rather than specifying directories as inputs to the build system, you should
-enumerate the set of files contained within them, either explicitly or using the
-[`glob()`](/reference/be/functions#glob) function. (Use `**` to force the
-`glob()` to be recursive.)
-
+Prefer to list the files explicitly or use the
+[`glob()`](/reference/be/functions#glob) function instead of depending on the
+directory itself. This keeps the input set visible in the `BUILD` file and
+avoids depending on unrelated files that happen to be in the same directory.
+Use `**` when the `glob()` must include files recursively.
 
 <p><span class="compare-better">Recommended</span> —
   <code>data = glob(["testdata/**"])</code>
 </p>
 
-Unfortunately, there are some scenarios where directory labels must be used.
-For example, if the `testdata` directory contains files whose names don't
-conform to the [label syntax](/concepts/labels#labels-lexical-specification),
-then explicit enumeration of files, or use of the
-[`glob()`](/reference/be/functions#glob) function produces an invalid labels
-error. You must use directory labels in this case, but beware of the
-associated risk of incorrect rebuilds described above.
+You can also use `filegroup()` to give the files a reusable label:
 
-If you must use directory labels, keep in mind that you can't refer to the
-parent package with a relative `../` path; instead, use an absolute path like
-`//data/regression:unittest/.`.
-
-Note: Directory labels are only valid for data dependencies. If you try to use
-a directory as a label in an argument other than `data`, it will fail and you
-will get a (probably cryptic) error message.
-
-Any external rule, such as a test, that needs to use multiple files must
-explicitly declare its dependence on all of them. You can use `filegroup()` to
-group files together in the `BUILD` file:
-
-```
+```starlark
 filegroup(
-        name = 'my_data',
-        srcs = glob(['my_unittest_data/*'])
+    name = "my_data",
+    srcs = glob(["my_unittest_data/*"]),
 )
 ```
 
-You can then reference the label `my_data` as the data dependency in your test.
+You can then reference `:my_data` as the `data` dependency in your test.
+
+Some cases still require referencing the directory itself. For example, if
+`testdata` contains files whose names don't conform to the
+[label syntax](/concepts/labels#labels-lexical-specification), then listing
+the files directly or using [`glob()`](/reference/be/functions#glob) produces
+an invalid label error.
+
+Directory labels can also be useful for a large directory tree that a tool
+consumes as a directory. Unlike `glob()`, a source directory label is not
+expanded while Bazel loads the package; Bazel traverses it when evaluating the
+action input. This can reduce loading work when not every target in the package
+is built. The tradeoff is that the directory contents remain opaque to rule
+logic.
+
+A source directory label names a directory from one package. If traversal
+encounters a nested package boundary, the build fails.
+
+If the directory is in another package, use an absolute label such as
+`//data/regression:testdata` and make that package expose the directory with
+`exports_files()` or a `filegroup()`. Do not use `../` to refer to a directory
+in a parent package.
+
+If a subdirectory has its own `BUILD` file, it is a different package. Declare
+its files separately from that package instead of relying on a source directory
+label in the parent package.
 
 <table class="columns">
   <tr>
@@ -375,4 +374,3 @@ You can then reference the label `my_data` as the data dependency in your test.
     </td>
   </tr>
 </table>
-
